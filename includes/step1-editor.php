@@ -89,7 +89,6 @@ function mna_execute_step_1_editor() {
         if ( empty( $news_pool ) ) return "Checked {$target_url} but no clear articles found.";
         
     } elseif ( $mode === 'gnews' ) {
-        // GNEWS Logic...
         $gnews_api = get_option( 'mna_gnews_api' );
         $query     = get_option( 'mna_search_query', 'Malta politics' );
         if ( empty( $gnews_api ) ) return new WP_Error( 'missing_api', 'GNews API missing.' );
@@ -113,7 +112,6 @@ function mna_execute_step_1_editor() {
             }
         }
     } else {
-        // RSS Logic...
         $feeds_str = get_option( 'mna_known_sources' );
         $feed_urls = array_filter( array_map( 'trim', explode( "\n", $feeds_str ) ) );
         if ( empty( $feed_urls ) ) return new WP_Error( 'no_feeds', 'No RSS feeds.' );
@@ -158,16 +156,31 @@ function mna_execute_step_1_editor() {
     update_option( 'mna_image_map', $image_map );
 
     // ==========================================
+    // GET DYNAMIC WORDPRESS AUTHORS & CATEGORIES
+    // ==========================================
+    $authors = get_users();
+    $author_list = [];
+    foreach($authors as $a) $author_list[] = "ID {$a->ID} = {$a->display_name}";
+    $author_string = implode(', ', $author_list);
+
+    $categories = get_categories(['hide_empty' => 0]);
+    $cat_list = [];
+    foreach($categories as $c) $cat_list[] = "ID {$c->term_id} = {$c->name}";
+    $cat_string = implode(', ', $cat_list);
+
+    // ==========================================
     // AI EVALUATION PHASE
     // ==========================================
     $text_model    = get_option( 'mna_text_model', 'anthropic/claude-3.5-sonnet' );
     $editor_prompt = get_option( 'mna_editor_prompt' );
     
-    // UPDATED PROMPT: Now asks for 'image_prompt'
+    // Inject the dynamic lists into the AI prompt
     $system_prompt = "{$editor_prompt}\n\n" . 
+        "AVAILABLE AUTHORS: {$author_string}\n" .
+        "AVAILABLE CATEGORIES: {$cat_string}\n\n" .
         "You must return ONLY a raw JSON array. If NO stories meet criteria, return: []\n" .
         "Format exactly like this for valid stories:\n" .
-        "[\n  {\n    \"source_id\": \"(Keep exact ID)\",\n    \"suggested_title\": \"(Your new headline)\",\n    \"ai_summary\": \"(Correspondent assignment & instructions)\",\n    \"image_prompt\": \"(A highly detailed visual description of the article for an AI image generator. Retro 8-bit or pixel art style.)\"\n  }\n]";
+        "[\n  {\n    \"source_id\": \"(Keep exact ID)\",\n    \"suggested_title\": \"(Your new headline)\",\n    \"ai_summary\": \"(Correspondent assignment & instructions)\",\n    \"image_prompt\": \"(Retro 8-bit or pixel art image description)\",\n    \"author_id\": (Select the best integer ID from Available Authors),\n    \"category_id\": (Select the best integer ID from Available Categories)\n  }\n]";
 
     $chunks = array_chunk( $fresh_news, 10 );
     $strikes = 0;
@@ -226,7 +239,9 @@ function mna_execute_step_1_editor() {
                         'source_url'      => esc_url_raw( $original_url ),
                         'suggested_title' => sanitize_text_field( $article['suggested_title'] ),
                         'ai_summary'      => sanitize_textarea_field( $article['ai_summary'] ),
-                        'image_prompt'    => sanitize_textarea_field( $article['image_prompt'] ?? '' ), // NEW
+                        'image_prompt'    => sanitize_textarea_field( $article['image_prompt'] ?? '' ),
+                        'author_id'       => intval( $article['author_id'] ?? 1 ), // Capture AI's choice
+                        'category_id'     => intval( $article['category_id'] ?? 1 ), // Capture AI's choice
                         'status'          => 'pending',
                         'created_at'      => current_time( 'mysql' )
                     ]

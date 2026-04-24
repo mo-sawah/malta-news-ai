@@ -1,12 +1,10 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-// We added $specific_id so the row's "Write & Publish" button targets the exact article
 function mna_execute_step_2_writer( $specific_id = null ) {
     global $wpdb;
     $table_name = $wpdb->prefix . 'mna_queue';
 
-    // 0. Load WP media files safely
     require_once( ABSPATH . 'wp-admin/includes/media.php' );
     require_once( ABSPATH . 'wp-admin/includes/file.php' );
     require_once( ABSPATH . 'wp-admin/includes/image.php' );
@@ -14,7 +12,6 @@ function mna_execute_step_2_writer( $specific_id = null ) {
     $or_api = get_option( 'mna_openrouter_api' );
     if ( empty( $or_api ) ) return new WP_Error( 'missing_api', 'OpenRouter API key is missing.' );
 
-    // 1. Get the article (either the specific one requested, or the oldest pending one)
     if ( $specific_id ) {
         $pending_item = $wpdb->get_row( $wpdb->prepare("SELECT * FROM $table_name WHERE status = 'pending' AND id = %d", $specific_id) );
     } else {
@@ -23,7 +20,6 @@ function mna_execute_step_2_writer( $specific_id = null ) {
     
     if ( ! $pending_item ) return new WP_Error('empty_queue', 'No pending articles found to write.');
 
-    // 2. Prepare the Writer AI Prompt
     $text_model    = get_option( 'mna_text_model', 'anthropic/claude-3.5-sonnet' );
     $writer_prompt = get_option( 'mna_writer_prompt' );
     $web_search    = get_option( 'mna_enable_web_search' ) == '1';
@@ -41,7 +37,6 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         'source_url'     => $pending_item->source_url
     ]);
 
-    // Force the AI to read the full article if web search is enabled
     if ( $web_search ) {
         $user_content .= "\nCRITICAL INSTRUCTION: Use your web search capabilities to visit '{$pending_item->source_url}' and read the full article to gather the deep facts, quotes, and context before writing the article.";
     }
@@ -55,11 +50,8 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         'response_format' => ['type' => 'json_object']
     ];
 
-    if ( $web_search ) {
-        $or_payload['plugins'] = [ ['id' => 'web'] ];
-    }
+    if ( $web_search ) $or_payload['plugins'] = [ ['id' => 'web'] ];
 
-    // 3. Call AI to write the article
     $ai_response = wp_remote_post( 'https://openrouter.ai/api/v1/chat/completions', [
         'timeout' => 120, 
         'headers' => [
@@ -85,12 +77,10 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         return new WP_Error( 'json_error', 'AI did not return valid JSON.' );
     }
 
-    // 4. Handle Featured Image
     $generate_images = get_option( 'mna_generate_images' ) == '1';
     $image_model     = get_option( 'mna_image_model', 'black-forest-labs/flux.2-pro' );
     $image_url_to_sideload = null;
 
-    // Use the image prompt we saved in the DB during Step 1
     if ( $generate_images && ! empty( $pending_item->image_prompt ) ) {
         $img_payload = [
             'model'      => $image_model,
@@ -116,7 +106,6 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         }
     }
 
-    // Fallback to original image
     if ( ! $image_url_to_sideload ) {
         $image_map = get_option( 'mna_image_map', [] );
         if ( isset( $image_map[ $pending_item->source_id ] ) ) {
@@ -124,17 +113,24 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         }
     }
 
-    // 5. Publish to WordPress
-    $post_author   = get_option( 'mna_post_author', 1 );
-    $post_category = get_option( 'mna_post_category', get_option('default_category') );
+    // ==========================================
+    // DYNAMIC AUTHOR & CATEGORY ASSIGNMENT
+    // ==========================================
+    $post_author_setting   = get_option( 'mna_post_author', 'auto' );
+    $post_category_setting = get_option( 'mna_post_category', 'auto' );
+
+    // Check if set to auto. If yes, use the AI's choice from the DB. If no, use the hardcoded choice.
+    $final_author   = ( $post_author_setting === 'auto' ) ? $pending_item->author_id : (int) $post_author_setting;
+    $final_category = ( $post_category_setting === 'auto' ) ? $pending_item->category_id : (int) $post_category_setting;
+
     $source_credit = "\n\n<p><em>Source URL: <a href='" . esc_url( $pending_item->source_url ) . "' target='_blank'>Reference Link</a></em></p>";
 
     $post_data = [
         'post_title'   => sanitize_text_field( $draft['final_title'] ),
         'post_content' => wp_kses_post( $draft['content'] ) . wp_kses_post( $source_credit ),
         'post_status'  => 'publish',
-        'post_author'  => (int) $post_author,
-        'post_category'=> [ (int) $post_category ]
+        'post_author'  => $final_author, // DYNAMIC!
+        'post_category'=> [ $final_category ] // DYNAMIC!
     ];
     
     $post_id = wp_insert_post( $post_data );
@@ -146,7 +142,6 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         if ( ! is_wp_error( $attachment_id ) ) set_post_thumbnail( $post_id, $attachment_id );
     }
 
-    // 6. Update Queue
     $wpdb->update(
         $table_name,
         [ 'status' => 'published' ],
