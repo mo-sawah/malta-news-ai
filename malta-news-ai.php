@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Malta News AI Editor (Pro)
  * Description: Advanced two-step AI editorial desk with queuing, web search, auto-publishing, and dynamic persona assignment.
- * Version: 2.2.2
+ * Version: 2.2.3
  * Author: Your Name
  */
 
@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 define( 'MNA_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MNA_URL', plugin_dir_url( __FILE__ ) );
-define( 'MNA_VERSION', '2.2.2' );
+define( 'MNA_VERSION', '2.2.3' );
 
 require_once MNA_DIR . 'includes/admin-settings.php';
 require_once MNA_DIR . 'includes/admin-queue.php';
@@ -50,9 +50,11 @@ function mna_create_queue_table() {
 /**
  * NATIVE WP-CRON SETUP
  */
+// 1. Add custom interval for 10 minutes
 add_filter( 'cron_schedules', 'mna_add_cron_intervals' );
 function mna_add_cron_intervals( $schedules ) {
-    $schedules['mna_twenty'] = array( 'interval' => 1200, 'display' => 'Every 20 Minutes' );
+    // 600 seconds = 10 minutes
+    $schedules['mna_ten'] = array( 'interval' => 600, 'display' => 'Every 10 Minutes' );
     return $schedules;
 }
 
@@ -61,7 +63,7 @@ function mna_setup_wp_cron() {
     if ( get_option('mna_auto_editor') == '1' && ! wp_next_scheduled( 'mna_cron_step_1' ) ) wp_schedule_event( time(), 'hourly', 'mna_cron_step_1' );
     elseif ( get_option('mna_auto_editor') != '1' ) wp_clear_scheduled_hook( 'mna_cron_step_1' );
 
-    if ( get_option('mna_auto_writer') == '1' && ! wp_next_scheduled( 'mna_cron_step_2' ) ) wp_schedule_event( time(), 'mna_twenty', 'mna_cron_step_2' );
+    if ( get_option('mna_auto_writer') == '1' && ! wp_next_scheduled( 'mna_cron_step_2' ) ) wp_schedule_event( time(), 'mna_ten', 'mna_cron_step_2' );
     elseif ( get_option('mna_auto_writer') != '1' ) wp_clear_scheduled_hook( 'mna_cron_step_2' );
 }
 
