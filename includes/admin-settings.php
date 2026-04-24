@@ -5,6 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 add_action( 'admin_init', 'mna_register_settings_pro' );
 function mna_register_settings_pro() {
     $settings = [
+        'mna_source_mode', 'mna_known_sources', // NEW SETTINGS
         'mna_gnews_api', 'mna_search_query', 'mna_country_code', 
         'mna_openrouter_api', 'mna_text_model', 'mna_enable_web_search',
         'mna_editor_prompt', 'mna_writer_prompt', 
@@ -17,6 +18,7 @@ function mna_register_settings_pro() {
 }
 
 function mna_render_settings_page() {
+    $default_rss = "https://timesofmalta.com/rss\nhttps://www.maltatoday.com.mt/rss";
     ?>
     <style>
         .mna-dashboard { max-width: 900px; margin: 20px 20px 20px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; }
@@ -55,21 +57,38 @@ function mna_render_settings_page() {
             <?php settings_fields( 'mna_settings_group' ); ?>
 
             <div class="mna-card">
-                <h2>1. News Sourcing (GNews API)</h2>
+                <h2>1. News Sourcing Engine</h2>
+                
                 <div class="mna-form-row">
-                    <label>GNews API Key</label>
-                    <input type="text" name="mna_gnews_api" value="<?php echo esc_attr( get_option( 'mna_gnews_api' ) ); ?>" placeholder="Enter GNews API Key">
+                    <label>Source Mode</label>
+                    <select name="mna_source_mode" id="mna_source_mode">
+                        <option value="rss" <?php selected( get_option( 'mna_source_mode', 'rss' ), 'rss' ); ?>>Known Local Sources (RSS) - Recommended</option>
+                        <option value="gnews" <?php selected( get_option( 'mna_source_mode' ), 'gnews' ); ?>>Global Search (GNews API)</option>
+                    </select>
                 </div>
-                <div style="display: flex; gap: 20px;">
-                    <div class="mna-form-row" style="flex: 1;">
-                        <label>Search Query</label>
-                        <input type="text" name="mna_search_query" value="<?php echo esc_attr( get_option( 'mna_search_query', 'politics' ) ); ?>">
-                        <span class="mna-help-text">Leave blank for all top news, or enter 'politics', 'economy', etc.</span>
+
+                <div id="mna_rss_wrapper">
+                    <div class="mna-form-row">
+                        <label>Known Source RSS Feeds (One URL per line)</label>
+                        <textarea name="mna_known_sources" placeholder="https://domain.com/rss"><?php echo esc_textarea( get_option( 'mna_known_sources', $default_rss ) ); ?></textarea>
+                        <span class="mna-help-text">The Editor will fetch the latest articles from these feeds and process them in batches of 10 until it finds relevant stories.</span>
                     </div>
-                    <div class="mna-form-row" style="flex: 1;">
-                        <label>Country Code</label>
-                        <input type="text" name="mna_country_code" value="<?php echo esc_attr( get_option( 'mna_country_code', 'mt' ) ); ?>">
-                        <span class="mna-help-text">'mt' for Malta, 'us' for USA.</span>
+                </div>
+
+                <div id="mna_gnews_wrapper">
+                    <div class="mna-form-row">
+                        <label>GNews API Key</label>
+                        <input type="text" name="mna_gnews_api" value="<?php echo esc_attr( get_option( 'mna_gnews_api' ) ); ?>">
+                    </div>
+                    <div style="display: flex; gap: 20px;">
+                        <div class="mna-form-row" style="flex: 1;">
+                            <label>Search Query</label>
+                            <input type="text" name="mna_search_query" value="<?php echo esc_attr( get_option( 'mna_search_query', 'Malta politics' ) ); ?>">
+                        </div>
+                        <div class="mna-form-row" style="flex: 1;">
+                            <label>Country Code</label>
+                            <input type="text" name="mna_country_code" value="<?php echo esc_attr( get_option( 'mna_country_code', 'mt' ) ); ?>">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -89,23 +108,20 @@ function mna_render_settings_page() {
                         <input type="checkbox" name="mna_enable_web_search" value="1" <?php checked( 1, get_option( 'mna_enable_web_search' ), true ); ?>>
                         <strong>Enable OpenRouter Web Search</strong>
                     </label>
-                    <span class="mna-help-text">If the selected model supports live web search, checking this will allow the AI to look up additional live facts.</span>
                 </div>
             </div>
 
             <div class="mna-card">
                 <h2>3. The Editor (Step 1 Prompt)</h2>
-                <span class="mna-help-text" style="margin-bottom: 10px;">This prompt tells the AI how to filter the 10 articles and create a summary/plan for what should be written.</span>
                 <div class="mna-form-row">
-                    <textarea name="mna_editor_prompt"><?php echo esc_textarea( get_option( 'mna_editor_prompt', "You are the Senior Editor of a pro-government news publication. Review the provided news JSON. Select the most important stories that matter to our agenda. For each selected story, write a suggested headline and a detailed summary of the facts and the angle we should take to defend the government or criticize the opposition. Discard irrelevant news." ) ); ?></textarea>
+                    <textarea name="mna_editor_prompt"><?php echo esc_textarea( get_option( 'mna_editor_prompt', "You are the Editor-in-Chief of APPOSTLI..." ) ); ?></textarea>
                 </div>
             </div>
 
             <div class="mna-card">
                 <h2>4. The Writer & Publisher (Step 2 Prompt)</h2>
-                <span class="mna-help-text" style="margin-bottom: 10px;">This prompt is used when the AI writes the actual 600-800 word article based on the summary from Step 1.</span>
                 <div class="mna-form-row">
-                    <textarea name="mna_writer_prompt"><?php echo esc_textarea( get_option( 'mna_writer_prompt', "You are an expert political journalist writing a highly engaging, pro-government news article. I will provide you with a news summary and an angle. Write a comprehensive 600-800 word article using proper HTML tags (<h2>, <p>, <ul>). Adopt a professional, persuasive tone." ) ); ?></textarea>
+                    <textarea name="mna_writer_prompt"><?php echo esc_textarea( get_option( 'mna_writer_prompt', "You are an elite correspondent for APPOSTLI..." ) ); ?></textarea>
                 </div>
 
                 <div style="display: flex; gap: 20px; margin-top: 15px;">
@@ -127,7 +143,6 @@ function mna_render_settings_page() {
                         <input type="checkbox" name="mna_generate_images" value="1" <?php checked( 1, get_option( 'mna_generate_images' ), true ); ?>>
                         <strong>Generate new Featured Images (Uses OpenRouter Modalitiy API)</strong>
                     </label>
-                    <span class="mna-help-text">If unchecked, the plugin will download and use the original image from the GNews source.</span>
                 </div>
                 <div class="mna-form-row">
                     <label>Image Model</label>
@@ -141,6 +156,20 @@ function mna_render_settings_page() {
 
     <script>
     jQuery(document).ready(function($) {
+        // Toggle Source Mode UI
+        function toggleSourceUI() {
+            if ($('#mna_source_mode').val() === 'rss') {
+                $('#mna_rss_wrapper').show();
+                $('#mna_gnews_wrapper').hide();
+            } else {
+                $('#mna_rss_wrapper').hide();
+                $('#mna_gnews_wrapper').show();
+            }
+        }
+        $('#mna_source_mode').on('change', toggleSourceUI);
+        toggleSourceUI(); // Run on load
+
+        // AJAX Triggers
         $('.mna-btn-ajax').on('click', function(e) {
             e.preventDefault();
             var btn = $(this);
@@ -151,7 +180,6 @@ function mna_render_settings_page() {
             
             $.post(ajaxurl, {
                 action: action,
-                // nonce protection will be added in the ajax handler
             }, function(response) {
                 alert(response.data || response);
                 btn.text(originalText).prop('disabled', false);
