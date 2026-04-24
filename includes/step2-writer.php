@@ -123,8 +123,6 @@ function mna_execute_step_2_writer( $specific_id = null ) {
     $final_author   = ( $post_author_setting === 'auto' ) ? $pending_item->author_id : (int) $post_author_setting;
     $final_category = ( $post_category_setting === 'auto' ) ? $pending_item->category_id : (int) $post_category_setting;
 
-    $source_credit = "\n\n<p><em>Source URL: <a href='" . esc_url( $pending_item->source_url ) . "' target='_blank'>Reference Link</a></em></p>";
-
     $post_data = [
         'post_title'   => sanitize_text_field( $draft['final_title'] ),
         'post_content' => wp_kses_post( $draft['content'] ) . wp_kses_post( $source_credit ),
