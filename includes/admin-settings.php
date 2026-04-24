@@ -5,8 +5,9 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 add_action( 'admin_init', 'mna_register_settings_pro' );
 function mna_register_settings_pro() {
     $settings = [
-        'mna_source_mode', 'mna_known_sources', // NEW SETTINGS
-        'mna_gnews_api', 'mna_search_query', 'mna_country_code', 
+        'mna_source_mode', 'mna_known_sources', // RSS
+        'mna_firecrawl_api', 'mna_firecrawl_urls', // FIRECRAWL
+        'mna_gnews_api', 'mna_search_query', 'mna_country_code', // GNEWS
         'mna_openrouter_api', 'mna_text_model', 'mna_enable_web_search',
         'mna_editor_prompt', 'mna_writer_prompt', 
         'mna_post_author', 'mna_post_category', 
@@ -19,6 +20,7 @@ function mna_register_settings_pro() {
 
 function mna_render_settings_page() {
     $default_rss = "https://timesofmalta.com/rss\nhttps://www.maltatoday.com.mt/rss";
+    $default_firecrawl = "https://timesofmalta.com/news/national\nhttps://www.maltatoday.com.mt/news/national/";
     ?>
     <style>
         .mna-dashboard { max-width: 900px; margin: 20px 20px 20px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; }
@@ -62,20 +64,32 @@ function mna_render_settings_page() {
                 <div class="mna-form-row">
                     <label>Source Mode</label>
                     <select name="mna_source_mode" id="mna_source_mode">
-                        <option value="rss" <?php selected( get_option( 'mna_source_mode', 'rss' ), 'rss' ); ?>>Known Local Sources (RSS) - Recommended</option>
+                        <option value="firecrawl" <?php selected( get_option( 'mna_source_mode', 'firecrawl' ), 'firecrawl' ); ?>>Firecrawl Direct Site AI Scrape (Highly Recommended)</option>
+                        <option value="rss" <?php selected( get_option( 'mna_source_mode' ), 'rss' ); ?>>Known Local Sources (RSS)</option>
                         <option value="gnews" <?php selected( get_option( 'mna_source_mode' ), 'gnews' ); ?>>Global Search (GNews API)</option>
                     </select>
                 </div>
 
-                <div id="mna_rss_wrapper">
+                <div id="mna_firecrawl_wrapper">
                     <div class="mna-form-row">
-                        <label>Known Source RSS Feeds (One URL per line)</label>
-                        <textarea name="mna_known_sources" placeholder="https://domain.com/rss"><?php echo esc_textarea( get_option( 'mna_known_sources', $default_rss ) ); ?></textarea>
-                        <span class="mna-help-text">The Editor will fetch the latest articles from these feeds and process them in batches of 10 until it finds relevant stories.</span>
+                        <label>Firecrawl API Key</label>
+                        <input type="text" name="mna_firecrawl_api" value="<?php echo esc_attr( get_option( 'mna_firecrawl_api' ) ); ?>" placeholder="fc-...">
+                    </div>
+                    <div class="mna-form-row">
+                        <label>Target Website Category URLs (One per line)</label>
+                        <textarea name="mna_firecrawl_urls" placeholder="https://timesofmalta.com/news/national"><?php echo esc_textarea( get_option( 'mna_firecrawl_urls', $default_firecrawl ) ); ?></textarea>
+                        <span class="mna-help-text">Firecrawl will "read" these exact pages and extract the latest articles from them. Point it directly at the politics/national news categories for best results.</span>
                     </div>
                 </div>
 
-                <div id="mna_gnews_wrapper">
+                <div id="mna_rss_wrapper" style="display: none;">
+                    <div class="mna-form-row">
+                        <label>Known Source RSS Feeds (One URL per line)</label>
+                        <textarea name="mna_known_sources"><?php echo esc_textarea( get_option( 'mna_known_sources', $default_rss ) ); ?></textarea>
+                    </div>
+                </div>
+
+                <div id="mna_gnews_wrapper" style="display: none;">
                     <div class="mna-form-row">
                         <label>GNews API Key</label>
                         <input type="text" name="mna_gnews_api" value="<?php echo esc_attr( get_option( 'mna_gnews_api' ) ); ?>">
@@ -158,13 +172,11 @@ function mna_render_settings_page() {
     jQuery(document).ready(function($) {
         // Toggle Source Mode UI
         function toggleSourceUI() {
-            if ($('#mna_source_mode').val() === 'rss') {
-                $('#mna_rss_wrapper').show();
-                $('#mna_gnews_wrapper').hide();
-            } else {
-                $('#mna_rss_wrapper').hide();
-                $('#mna_gnews_wrapper').show();
-            }
+            var mode = $('#mna_source_mode').val();
+            $('#mna_firecrawl_wrapper, #mna_rss_wrapper, #mna_gnews_wrapper').hide();
+            if (mode === 'firecrawl') $('#mna_firecrawl_wrapper').show();
+            else if (mode === 'rss') $('#mna_rss_wrapper').show();
+            else if (mode === 'gnews') $('#mna_gnews_wrapper').show();
         }
         $('#mna_source_mode').on('change', toggleSourceUI);
         toggleSourceUI(); // Run on load

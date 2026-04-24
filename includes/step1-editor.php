@@ -11,13 +11,86 @@ function mna_execute_step_1_editor() {
     
     if ( empty( $or_api ) ) return new WP_Error( 'missing_api', 'OpenRouter API key is missing.' );
 
-    $mode = get_option( 'mna_source_mode', 'rss' );
+    $mode = get_option( 'mna_source_mode', 'firecrawl' );
     $news_pool = [];
 
     // ==========================================
     // DATA GATHERING PHASE
     // ==========================================
-    if ( $mode === 'gnews' ) {
+    
+    if ( $mode === 'firecrawl' ) {
+        // --- FIRECRAWL MODE ---
+        $fc_api = get_option( 'mna_firecrawl_api' );
+        $urls_str = get_option( 'mna_firecrawl_urls' );
+        $urls = array_filter( array_map( 'trim', explode( "\n", $urls_str ) ) );
+        
+        if ( empty( $fc_api ) ) return new WP_Error( 'missing_api', 'Firecrawl API key is missing.' );
+        if ( empty( $urls ) ) return new WP_Error( 'no_urls', 'No target URLs provided for Firecrawl.' );
+
+        // Limit to top 3 URLs per run to prevent server timeout
+        foreach ( array_slice( $urls, 0, 3 ) as $url ) {
+            $fc_payload = [
+                'url' => $url,
+                'formats' => ['extract'],
+                'extract' => [
+                    'prompt' => 'Extract the 15 most recent news articles from this page. Ignore ads and sidebars.',
+                    'schema' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'articles' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'title' => ['type' => 'string'],
+                                        'description' => ['type' => 'string'],
+                                        'url' => ['type' => 'string'],
+                                        'image' => ['type' => 'string']
+                                    ],
+                                    'required' => ['title', 'url']
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ];
+
+            $response = wp_remote_post( 'https://api.firecrawl.dev/v1/scrape', [
+                'timeout' => 45, // Firecrawl LLM extraction takes a few seconds
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $fc_api,
+                    'Content-Type'  => 'application/json',
+                ],
+                'body' => json_encode( $fc_payload )
+            ]);
+
+            if ( ! is_wp_error( $response ) ) {
+                $body = json_decode( wp_remote_retrieve_body( $response ), true );
+                $articles = $body['data']['extract']['articles'] ?? [];
+                
+                foreach ( $articles as $article ) {
+                    if ( empty($article['title']) || empty($article['url']) ) continue;
+                    
+                    // Fix relative URLs if Firecrawl misses the domain
+                    $article_url = $article['url'];
+                    if ( strpos($article_url, '/') === 0 ) {
+                        $parsed = parse_url($url);
+                        $article_url = $parsed['scheme'] . '://' . $parsed['host'] . $article_url;
+                    }
+                    
+                    $news_pool[] = [
+                        'source_id'   => 'fc_' . md5( $article_url ),
+                        'title'       => $article['title'],
+                        'description' => $article['description'] ?? '',
+                        'url'         => $article_url,
+                        'image'       => $article['image'] ?? null
+                    ];
+                }
+            }
+        }
+        
+    } elseif ( $mode === 'gnews' ) {
+        // --- GNEWS MODE ---
         $gnews_api = get_option( 'mna_gnews_api' );
         $query     = get_option( 'mna_search_query', 'Malta politics' );
         if ( empty( $gnews_api ) ) return new WP_Error( 'missing_api', 'GNews API key missing.' );
@@ -26,52 +99,52 @@ function mna_execute_step_1_editor() {
         $gnews_url = "https://gnews.io/api/v4/search?q=" . urlencode($exact_query) . "&lang=en&max=30&apikey={$gnews_api}";
         $response = wp_remote_get( $gnews_url, ['timeout' => 30] );
         
-        if ( is_wp_error( $response ) ) return $response;
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        
-        if ( !empty( $body['articles'] ) ) {
-            foreach ( $body['articles'] as $article ) {
-                $news_pool[] = [
-                    'source_id'   => 'gnews_' . md5( $article['url'] ),
-                    'title'       => $article['title'],
-                    'description' => $article['description'],
-                    'url'         => $article['url'],
-                    'image'       => $article['image'] ?? null
-                ];
+        if ( ! is_wp_error( $response ) ) {
+            $body = json_decode( wp_remote_retrieve_body( $response ), true );
+            if ( !empty( $body['articles'] ) ) {
+                foreach ( $body['articles'] as $article ) {
+                    $news_pool[] = [
+                        'source_id'   => 'gnews_' . md5( $article['url'] ),
+                        'title'       => $article['title'],
+                        'description' => $article['description'],
+                        'url'         => $article['url'],
+                        'image'       => $article['image'] ?? null
+                    ];
+                }
             }
         }
+        
     } else {
-        // KNOWN SOURCES (RSS) MODE
+        // --- RSS MODE ---
         $feeds_str = get_option( 'mna_known_sources' );
         $feed_urls = array_filter( array_map( 'trim', explode( "\n", $feeds_str ) ) );
-        
         if ( empty( $feed_urls ) ) return new WP_Error( 'no_feeds', 'No RSS feeds configured.' );
         
         include_once( ABSPATH . WPINC . '/feed.php' );
         $rss = fetch_feed( $feed_urls );
         
-        if ( is_wp_error( $rss ) ) return new WP_Error( 'rss_error', 'Failed to fetch RSS feeds.' );
-        
-        $maxitems = $rss->get_item_quantity( 40 ); // Grab up to 40 recent items across all feeds
-        $rss_items = $rss->get_items( 0, $maxitems );
-        
-        foreach ( $rss_items as $item ) {
-            $url = $item->get_permalink();
-            $image_url = null;
-            if ( $enclosure = $item->get_enclosure() ) {
-                $image_url = $enclosure->get_link();
+        if ( ! is_wp_error( $rss ) ) {
+            $maxitems = $rss->get_item_quantity( 40 );
+            $rss_items = $rss->get_items( 0, $maxitems );
+            
+            foreach ( $rss_items as $item ) {
+                $url = $item->get_permalink();
+                $image_url = null;
+                if ( $enclosure = $item->get_enclosure() ) {
+                    $image_url = $enclosure->get_link();
+                }
+                $news_pool[] = [
+                    'source_id'   => 'rss_' . md5( $url ),
+                    'title'       => $item->get_title(),
+                    'description' => wp_trim_words( strip_tags( $item->get_description() ), 40 ),
+                    'url'         => $url,
+                    'image'       => $image_url
+                ];
             }
-            $news_pool[] = [
-                'source_id'   => 'rss_' . md5( $url ),
-                'title'       => $item->get_title(),
-                'description' => wp_trim_words( strip_tags( $item->get_description() ), 40 ),
-                'url'         => $url,
-                'image'       => $image_url
-            ];
         }
     }
 
-    if ( empty( $news_pool ) ) return new WP_Error( 'no_news', 'No news found from sources.' );
+    if ( empty( $news_pool ) ) return new WP_Error( 'no_news', 'No news could be fetched from the selected sources.' );
 
     // ==========================================
     // FILTERING PHASE (Remove already processed)
@@ -176,14 +249,13 @@ function mna_execute_step_1_editor() {
                 );
                 $added_count++;
             }
-            break; // WE FOUND GOLD! Stop searching.
+            break; // We found the gold! Stop checking the rest of the chunks.
         }
-        // If array is empty, it means Strike X failed. Loop continues to next chunk.
     }
 
     if ( $added_count > 0 ) {
         return "Step 1 Complete: Added {$added_count} new article plans to the Pending Queue (Took {$strikes} attempts).";
     } else {
-        return "Checked {$strikes} batches of news, but the AI deemed none of them relevant to Malta politics based on your prompt.";
+        return "Checked {$strikes} batches of news, but the AI deemed none of them relevant based on your prompt.";
     }
 }
