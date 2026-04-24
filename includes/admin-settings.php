@@ -1,21 +1,19 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-// Register Settings
 add_action( 'admin_init', 'mna_register_settings_pro' );
 function mna_register_settings_pro() {
     $settings = [
-        'mna_source_mode', 'mna_known_sources', // RSS
-        'mna_firecrawl_api', 'mna_firecrawl_urls', // FIRECRAWL
-        'mna_gnews_api', 'mna_search_query', 'mna_country_code', // GNEWS
+        'mna_auto_editor', 'mna_auto_writer', // NEW AUTOPILOT TOGGLES
+        'mna_source_mode', 'mna_known_sources', 
+        'mna_firecrawl_api', 'mna_firecrawl_urls', 
+        'mna_gnews_api', 'mna_search_query', 'mna_country_code', 
         'mna_openrouter_api', 'mna_text_model', 'mna_enable_web_search',
         'mna_editor_prompt', 'mna_writer_prompt', 
         'mna_post_author', 'mna_post_category', 
         'mna_generate_images', 'mna_image_model'
     ];
-    foreach ( $settings as $setting ) {
-        register_setting( 'mna_settings_group', $setting );
-    }
+    foreach ( $settings as $setting ) register_setting( 'mna_settings_group', $setting );
 }
 
 function mna_render_settings_page() {
@@ -23,32 +21,27 @@ function mna_render_settings_page() {
     $default_firecrawl = "https://timesofmalta.com/news/national\nhttps://www.maltatoday.com.mt/news/national/";
     ?>
     <style>
-        .mna-dashboard { max-width: 900px; margin: 20px 20px 20px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; }
+        .mna-dashboard { max-width: 900px; margin: 20px 20px 20px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         .mna-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .mna-header h1 { font-size: 24px; margin: 0; }
-        .mna-actions { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; gap: 10px; border-left: 4px solid #0073aa; }
-        .mna-btn-ajax { background: #0073aa; color: #fff; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.2s; }
-        .mna-btn-ajax:hover { background: #005177; }
+        .mna-actions { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; gap: 10px; border-left: 4px solid #0073aa; align-items: center; }
+        .mna-btn-ajax { background: #0073aa; color: #fff; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; }
         .mna-btn-ajax:disabled { background: #ccc; cursor: not-allowed; }
         .mna-card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .mna-card h2 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; font-size: 18px; color: #23282d; }
         .mna-form-row { margin-bottom: 15px; }
-        .mna-form-row label { display: block; font-weight: 600; margin-bottom: 5px; color: #333; }
-        .mna-form-row input[type="text"], .mna-form-row textarea, .mna-form-row select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        .mna-form-row textarea { height: 120px; font-family: monospace; font-size: 13px; }
+        .mna-form-row label { display: block; font-weight: 600; margin-bottom: 5px; }
+        .mna-form-row input[type="text"], .mna-form-row textarea, .mna-form-row select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .mna-form-row textarea { height: 120px; font-family: monospace; }
         .mna-help-text { font-size: 12px; color: #666; margin-top: 4px; display: block; }
+        .mna-toggle-box { background: #f0f0f1; padding: 15px; border-radius: 6px; border: 1px solid #ccd0d4; margin-bottom: 20px; display: flex; gap: 20px; }
     </style>
 
     <div class="wrap mna-dashboard">
-        <div class="mna-header">
-            <h1>AI News Editor (Pro Engine)</h1>
-        </div>
+        <div class="mna-header"><h1>AI News Editor (Pro Engine)</h1></div>
 
         <div class="mna-actions">
-            <div>
-                <strong>Manual Controls:</strong>
-                <span class="mna-help-text" style="display:inline; margin-left: 10px;">Test your settings without waiting for cron.</span>
-            </div>
+            <div><strong>Manual Controls:</strong></div>
             <div style="margin-left: auto;">
                 <button class="mna-btn-ajax" data-action="mna_run_step_1">Run Step 1: Editor (Fetch & Queue)</button>
                 <button class="mna-btn-ajax" data-action="mna_run_step_2" style="background: #00a32a;">Run Step 2: Writer (Draft 1 Post)</button>
@@ -58,9 +51,25 @@ function mna_render_settings_page() {
         <form method="post" action="options.php">
             <?php settings_fields( 'mna_settings_group' ); ?>
 
+            <div class="mna-toggle-box">
+                <div style="flex: 1;">
+                    <label style="font-weight: bold; font-size: 15px; display:flex; align-items:center; gap: 8px;">
+                        <input type="checkbox" name="mna_auto_editor" value="1" <?php checked( 1, get_option( 'mna_auto_editor' ), true ); ?>>
+                        Enable Auto-Editor (Runs every 1 hour)
+                    </label>
+                    <span class="mna-help-text">Fetches news in the background via WP-Cron and adds it to the queue.</span>
+                </div>
+                <div style="flex: 1;">
+                    <label style="font-weight: bold; font-size: 15px; display:flex; align-items:center; gap: 8px; color: #008a20;">
+                        <input type="checkbox" name="mna_auto_writer" value="1" <?php checked( 1, get_option( 'mna_auto_writer' ), true ); ?>>
+                        Enable Auto-Writer (Runs every 20 mins)
+                    </label>
+                    <span class="mna-help-text">Pulls 1 article from the queue in the background, writes, and publishes it.</span>
+                </div>
+            </div>
+
             <div class="mna-card">
                 <h2>1. News Sourcing Engine</h2>
-                
                 <div class="mna-form-row">
                     <label>Source Mode</label>
                     <select name="mna_source_mode" id="mna_source_mode">
@@ -69,99 +78,59 @@ function mna_render_settings_page() {
                         <option value="gnews" <?php selected( get_option( 'mna_source_mode' ), 'gnews' ); ?>>Global Search (GNews API)</option>
                     </select>
                 </div>
-
                 <div id="mna_firecrawl_wrapper">
                     <div class="mna-form-row">
                         <label>Firecrawl API Key</label>
-                        <input type="text" name="mna_firecrawl_api" value="<?php echo esc_attr( get_option( 'mna_firecrawl_api' ) ); ?>" placeholder="fc-...">
+                        <input type="text" name="mna_firecrawl_api" value="<?php echo esc_attr( get_option( 'mna_firecrawl_api' ) ); ?>">
                     </div>
                     <div class="mna-form-row">
                         <label>Target Website Category URLs (One per line)</label>
-                        <textarea name="mna_firecrawl_urls" placeholder="https://timesofmalta.com/news/national"><?php echo esc_textarea( get_option( 'mna_firecrawl_urls', $default_firecrawl ) ); ?></textarea>
-                        <span class="mna-help-text">Firecrawl will "read" these exact pages and extract the latest articles from them. Point it directly at the politics/national news categories for best results.</span>
+                        <textarea name="mna_firecrawl_urls"><?php echo esc_textarea( get_option( 'mna_firecrawl_urls', $default_firecrawl ) ); ?></textarea>
                     </div>
                 </div>
-
                 <div id="mna_rss_wrapper" style="display: none;">
                     <div class="mna-form-row">
-                        <label>Known Source RSS Feeds (One URL per line)</label>
+                        <label>Known Source RSS Feeds (One per line)</label>
                         <textarea name="mna_known_sources"><?php echo esc_textarea( get_option( 'mna_known_sources', $default_rss ) ); ?></textarea>
                     </div>
                 </div>
-
                 <div id="mna_gnews_wrapper" style="display: none;">
-                    <div class="mna-form-row">
-                        <label>GNews API Key</label>
-                        <input type="text" name="mna_gnews_api" value="<?php echo esc_attr( get_option( 'mna_gnews_api' ) ); ?>">
-                    </div>
+                    <div class="mna-form-row"><label>GNews API Key</label><input type="text" name="mna_gnews_api" value="<?php echo esc_attr( get_option( 'mna_gnews_api' ) ); ?>"></div>
                     <div style="display: flex; gap: 20px;">
-                        <div class="mna-form-row" style="flex: 1;">
-                            <label>Search Query</label>
-                            <input type="text" name="mna_search_query" value="<?php echo esc_attr( get_option( 'mna_search_query', 'Malta politics' ) ); ?>">
-                        </div>
-                        <div class="mna-form-row" style="flex: 1;">
-                            <label>Country Code</label>
-                            <input type="text" name="mna_country_code" value="<?php echo esc_attr( get_option( 'mna_country_code', 'mt' ) ); ?>">
-                        </div>
+                        <div class="mna-form-row" style="flex: 1;"><label>Search Query</label><input type="text" name="mna_search_query" value="<?php echo esc_attr( get_option( 'mna_search_query', 'Malta politics' ) ); ?>"></div>
+                        <div class="mna-form-row" style="flex: 1;"><label>Country Code</label><input type="text" name="mna_country_code" value="<?php echo esc_attr( get_option( 'mna_country_code', 'mt' ) ); ?>"></div>
                     </div>
                 </div>
             </div>
 
             <div class="mna-card">
                 <h2>2. OpenRouter AI Settings</h2>
+                <div class="mna-form-row"><label>OpenRouter API Key</label><input type="text" name="mna_openrouter_api" value="<?php echo esc_attr( get_option( 'mna_openrouter_api' ) ); ?>"></div>
+                <div class="mna-form-row"><label>Text Model</label><input type="text" name="mna_text_model" value="<?php echo esc_attr( get_option( 'mna_text_model', 'anthropic/claude-3.5-sonnet' ) ); ?>"></div>
                 <div class="mna-form-row">
-                    <label>OpenRouter API Key</label>
-                    <input type="text" name="mna_openrouter_api" value="<?php echo esc_attr( get_option( 'mna_openrouter_api' ) ); ?>">
-                </div>
-                <div class="mna-form-row">
-                    <label>Text Model</label>
-                    <input type="text" name="mna_text_model" value="<?php echo esc_attr( get_option( 'mna_text_model', 'anthropic/claude-3.5-sonnet' ) ); ?>">
-                </div>
-                <div class="mna-form-row">
-                    <label>
-                        <input type="checkbox" name="mna_enable_web_search" value="1" <?php checked( 1, get_option( 'mna_enable_web_search' ), true ); ?>>
-                        <strong>Enable OpenRouter Web Search</strong>
-                    </label>
+                    <label><input type="checkbox" name="mna_enable_web_search" value="1" <?php checked( 1, get_option( 'mna_enable_web_search' ), true ); ?>> <strong>Enable OpenRouter Web Search (CRITICAL FOR FULL FACTS)</strong></label>
+                    <span class="mna-help-text">When checked, the Writer AI will visit the actual article URL to pull deep facts before writing.</span>
                 </div>
             </div>
 
             <div class="mna-card">
                 <h2>3. The Editor (Step 1 Prompt)</h2>
-                <div class="mna-form-row">
-                    <textarea name="mna_editor_prompt"><?php echo esc_textarea( get_option( 'mna_editor_prompt', "You are the Editor-in-Chief of APPOSTLI..." ) ); ?></textarea>
-                </div>
+                <div class="mna-form-row"><textarea name="mna_editor_prompt"><?php echo esc_textarea( get_option( 'mna_editor_prompt', "You are the Editor-in-Chief of APPOSTLI..." ) ); ?></textarea></div>
             </div>
 
             <div class="mna-card">
                 <h2>4. The Writer & Publisher (Step 2 Prompt)</h2>
-                <div class="mna-form-row">
-                    <textarea name="mna_writer_prompt"><?php echo esc_textarea( get_option( 'mna_writer_prompt', "You are an elite correspondent for APPOSTLI..." ) ); ?></textarea>
-                </div>
-
+                <div class="mna-form-row"><textarea name="mna_writer_prompt"><?php echo esc_textarea( get_option( 'mna_writer_prompt', "You are an elite correspondent for APPOSTLI..." ) ); ?></textarea></div>
                 <div style="display: flex; gap: 20px; margin-top: 15px;">
-                    <div class="mna-form-row" style="flex: 1;">
-                        <label>Post Author</label>
-                        <?php wp_dropdown_users( array( 'name' => 'mna_post_author', 'selected' => get_option( 'mna_post_author', 1 ) ) ); ?>
-                    </div>
-                    <div class="mna-form-row" style="flex: 1;">
-                        <label>Post Category</label>
-                        <?php wp_dropdown_categories( array( 'name' => 'mna_post_category', 'selected' => get_option( 'mna_post_category', get_option('default_category') ), 'hide_empty' => 0 ) ); ?>
-                    </div>
+                    <div class="mna-form-row" style="flex: 1;"><label>Post Author</label><?php wp_dropdown_users( array( 'name' => 'mna_post_author', 'selected' => get_option( 'mna_post_author', 1 ) ) ); ?></div>
+                    <div class="mna-form-row" style="flex: 1;"><label>Post Category</label><?php wp_dropdown_categories( array( 'name' => 'mna_post_category', 'selected' => get_option( 'mna_post_category', get_option('default_category') ), 'hide_empty' => 0 ) ); ?></div>
                 </div>
             </div>
 
             <div class="mna-card">
                 <h2>5. AI Image Generation</h2>
-                <div class="mna-form-row">
-                    <label>
-                        <input type="checkbox" name="mna_generate_images" value="1" <?php checked( 1, get_option( 'mna_generate_images' ), true ); ?>>
-                        <strong>Generate new Featured Images (Uses OpenRouter Modalitiy API)</strong>
-                    </label>
-                </div>
-                <div class="mna-form-row">
-                    <label>Image Model</label>
-                    <input type="text" name="mna_image_model" value="<?php echo esc_attr( get_option( 'mna_image_model', 'black-forest-labs/flux.2-pro' ) ); ?>">
-                </div>
+                <div class="mna-form-row"><label><input type="checkbox" name="mna_generate_images" value="1" <?php checked( 1, get_option( 'mna_generate_images' ), true ); ?>> <strong>Generate new Featured Images</strong></label></div>
+                <div class="mna-form-row"><label>Image Model</label><input type="text" name="mna_image_model" value="<?php echo esc_attr( get_option( 'mna_image_model', 'black-forest-labs/flux.2-pro' ) ); ?>"></div>
             </div>
 
             <?php submit_button( 'Save All Settings', 'primary', 'submit', true, ['style' => 'font-size: 16px; padding: 10px 30px;'] ); ?>
@@ -170,7 +139,6 @@ function mna_render_settings_page() {
 
     <script>
     jQuery(document).ready(function($) {
-        // Toggle Source Mode UI
         function toggleSourceUI() {
             var mode = $('#mna_source_mode').val();
             $('#mna_firecrawl_wrapper, #mna_rss_wrapper, #mna_gnews_wrapper').hide();
@@ -179,24 +147,19 @@ function mna_render_settings_page() {
             else if (mode === 'gnews') $('#mna_gnews_wrapper').show();
         }
         $('#mna_source_mode').on('change', toggleSourceUI);
-        toggleSourceUI(); // Run on load
+        toggleSourceUI();
 
-        // AJAX Triggers
         $('.mna-btn-ajax').on('click', function(e) {
             e.preventDefault();
             var btn = $(this);
             var action = btn.data('action');
             var originalText = btn.text();
-            
-            btn.text('Processing (Please wait)...').prop('disabled', true);
-            
-            $.post(ajaxurl, {
-                action: action,
-            }, function(response) {
+            btn.text('Processing...').prop('disabled', true);
+            $.post(ajaxurl, { action: action }, function(response) {
                 alert(response.data || response);
                 btn.text(originalText).prop('disabled', false);
             }).fail(function() {
-                alert('Request timed out or failed. Check console for errors.');
+                alert('Request failed.');
                 btn.text(originalText).prop('disabled', false);
             });
         });
