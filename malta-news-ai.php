@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Malta News AI Editor (Pro)
  * Description: Advanced two-step AI editorial desk with queuing, web search, and auto-publishing.
- * Version: 2.0.2
+ * Version: 2.0.3
  * Author: Mohamed Sawah
  */
 
@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 // Define plugin constants
 define( 'MNA_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MNA_URL', plugin_dir_url( __FILE__ ) );
-define( 'MNA_VERSION', '2.0.2' );
+define( 'MNA_VERSION', '2.0.3' );
 
 // Include all modular files
 require_once MNA_DIR . 'includes/admin-settings.php';

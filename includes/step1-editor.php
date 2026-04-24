@@ -19,74 +19,91 @@ function mna_execute_step_1_editor() {
     // ==========================================
     
     if ( $mode === 'firecrawl' ) {
-        // --- FIRECRAWL MODE ---
+        // --- FIRECRAWL MODE (ROUND-ROBIN) ---
         $fc_api = get_option( 'mna_firecrawl_api' );
         $urls_str = get_option( 'mna_firecrawl_urls' );
-        $urls = array_filter( array_map( 'trim', explode( "\n", $urls_str ) ) );
+        $urls = array_values( array_filter( array_map( 'trim', explode( "\n", $urls_str ) ) ) );
         
         if ( empty( $fc_api ) ) return new WP_Error( 'missing_api', 'Firecrawl API key is missing.' );
         if ( empty( $urls ) ) return new WP_Error( 'no_urls', 'No target URLs provided for Firecrawl.' );
 
-        // Limit to top 3 URLs per run to prevent server timeout
-        foreach ( array_slice( $urls, 0, 3 ) as $url ) {
-            $fc_payload = [
-                'url' => $url,
-                'formats' => ['extract'],
-                'extract' => [
-                    'prompt' => 'Extract the 15 most recent news articles from this page. Ignore ads and sidebars.',
-                    'schema' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'articles' => [
-                                'type' => 'array',
-                                'items' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'title' => ['type' => 'string'],
-                                        'description' => ['type' => 'string'],
-                                        'url' => ['type' => 'string'],
-                                        'image' => ['type' => 'string']
-                                    ],
-                                    'required' => ['title', 'url']
-                                ]
+        // Get the last index we checked
+        $last_index = (int) get_option( 'mna_fc_last_index', 0 );
+        
+        // If we reached the end of the list, loop back to the start
+        if ( $last_index >= count( $urls ) ) {
+            $last_index = 0;
+        }
+
+        // Pick exactly ONE url to check this round
+        $target_url = $urls[$last_index];
+
+        // Update the database so it checks the NEXT url next time
+        update_option( 'mna_fc_last_index', $last_index + 1 );
+
+        $fc_payload = [
+            'url' => $target_url,
+            'formats' => ['extract'],
+            'extract' => [
+                'prompt' => 'Extract the 10 most recent news articles from this page. Ignore ads and sidebars.',
+                'schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'articles' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'title' => ['type' => 'string'],
+                                    'description' => ['type' => 'string'],
+                                    'url' => ['type' => 'string'],
+                                    'image' => ['type' => 'string']
+                                ],
+                                'required' => ['title', 'url']
                             ]
                         ]
                     ]
                 ]
-            ];
+            ]
+        ];
 
-            $response = wp_remote_post( 'https://api.firecrawl.dev/v1/scrape', [
-                'timeout' => 45, // Firecrawl LLM extraction takes a few seconds
-                'headers' => [
-                    'Authorization' => 'Bearer ' . $fc_api,
-                    'Content-Type'  => 'application/json',
-                ],
-                'body' => json_encode( $fc_payload )
-            ]);
+        $response = wp_remote_post( 'https://api.firecrawl.dev/v1/scrape', [
+            'timeout' => 45, // Wait up to 45 seconds for Firecrawl LLM
+            'headers' => [
+                'Authorization' => 'Bearer ' . $fc_api,
+                'Content-Type'  => 'application/json',
+            ],
+            'body' => json_encode( $fc_payload )
+        ]);
 
-            if ( ! is_wp_error( $response ) ) {
-                $body = json_decode( wp_remote_retrieve_body( $response ), true );
-                $articles = $body['data']['extract']['articles'] ?? [];
-                
-                foreach ( $articles as $article ) {
-                    if ( empty($article['title']) || empty($article['url']) ) continue;
-                    
-                    // Fix relative URLs if Firecrawl misses the domain
-                    $article_url = $article['url'];
-                    if ( strpos($article_url, '/') === 0 ) {
-                        $parsed = parse_url($url);
-                        $article_url = $parsed['scheme'] . '://' . $parsed['host'] . $article_url;
-                    }
-                    
-                    $news_pool[] = [
-                        'source_id'   => 'fc_' . md5( $article_url ),
-                        'title'       => $article['title'],
-                        'description' => $article['description'] ?? '',
-                        'url'         => $article_url,
-                        'image'       => $article['image'] ?? null
-                    ];
-                }
+        if ( is_wp_error( $response ) ) {
+            return new WP_Error( 'fc_error', 'Firecrawl connection timed out or failed for: ' . $target_url );
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        $articles = $body['data']['extract']['articles'] ?? [];
+        
+        foreach ( $articles as $article ) {
+            if ( empty($article['title']) || empty($article['url']) ) continue;
+            
+            // Fix relative URLs if Firecrawl misses the domain
+            $article_url = $article['url'];
+            if ( strpos($article_url, '/') === 0 ) {
+                $parsed = parse_url($target_url);
+                $article_url = $parsed['scheme'] . '://' . $parsed['host'] . $article_url;
             }
+            
+            $news_pool[] = [
+                'source_id'   => 'fc_' . md5( $article_url ),
+                'title'       => $article['title'],
+                'description' => $article['description'] ?? '',
+                'url'         => $article_url,
+                'image'       => $article['image'] ?? null
+            ];
+        }
+
+        if ( empty( $news_pool ) ) {
+            return "Checked {$target_url} but Firecrawl couldn't find any clear articles right now.";
         }
         
     } elseif ( $mode === 'gnews' ) {
@@ -144,7 +161,7 @@ function mna_execute_step_1_editor() {
         }
     }
 
-    if ( empty( $news_pool ) ) return new WP_Error( 'no_news', 'No news could be fetched from the selected sources.' );
+    if ( empty( $news_pool ) ) return new WP_Error( 'no_news', 'No news could be fetched from the selected source.' );
 
     // ==========================================
     // FILTERING PHASE (Remove already processed)
@@ -162,11 +179,14 @@ function mna_execute_step_1_editor() {
         }
     }
 
-    if ( empty( $fresh_news ) ) return 'All recent news has already been processed. No new items added to the queue.';
+    if ( empty( $fresh_news ) ) {
+        return ( isset($target_url) ) ? "Checked {$target_url}, but all recent news has already been processed." : "All recent news has already been processed.";
+    }
+    
     update_option( 'mna_image_map', $image_map );
 
     // ==========================================
-    // AI EVALUATION PHASE (The 3-Strike Loop)
+    // AI EVALUATION PHASE
     // ==========================================
     $text_model    = get_option( 'mna_text_model', 'anthropic/claude-3.5-sonnet' );
     $editor_prompt = get_option( 'mna_editor_prompt' );
@@ -177,16 +197,15 @@ function mna_execute_step_1_editor() {
         "Format exactly like this if you find valid stories:\n" .
         "[\n  {\n    \"source_id\": \"(Keep exact ID)\",\n    \"suggested_title\": \"(Your new headline)\",\n    \"ai_summary\": \"(Correspondent assignment & instructions)\"\n  }\n]";
 
-    // Chunk into batches of 10
+    // Chunk into batches of 10 to send to OpenRouter
     $chunks = array_chunk( $fresh_news, 10 );
     $strikes = 0;
     $added_count = 0;
 
     foreach ( $chunks as $chunk ) {
-        if ( $strikes >= 3 ) break; // Max 3 API calls per run to save money
+        if ( $strikes >= 2 ) break; // Max 2 API calls to OpenRouter to save time/money
         $strikes++;
 
-        // Clean chunk for AI (don't send images to save tokens)
         $ai_payload_data = [];
         foreach( $chunk as $item ) {
             $ai_payload_data[] = [
@@ -207,7 +226,7 @@ function mna_execute_step_1_editor() {
         if ( $web_search ) $or_payload['plugins'] = [ ['id' => 'web'] ];
 
         $ai_response = wp_remote_post( 'https://openrouter.ai/api/v1/chat/completions', [
-            'timeout' => 60,
+            'timeout' => 45,
             'headers' => [
                 'Authorization' => 'Bearer ' . $or_api,
                 'Content-Type'  => 'application/json',
@@ -217,7 +236,7 @@ function mna_execute_step_1_editor() {
             'body' => json_encode( $or_payload )
         ]);
 
-        if ( is_wp_error( $ai_response ) ) continue; // If API fails, try next chunk
+        if ( is_wp_error( $ai_response ) ) continue; 
         
         $ai_body = json_decode( wp_remote_retrieve_body( $ai_response ), true );
         $content = $ai_body['choices'][0]['message']['content'] ?? '[]';
@@ -225,12 +244,10 @@ function mna_execute_step_1_editor() {
         $clean_json = str_replace( ['```json', '```'], '', $content );
         $approved_articles = json_decode( trim( $clean_json ), true );
 
-        // If the AI found valid political articles, add them and BREAK the loop
         if ( is_array( $approved_articles ) && count( $approved_articles ) > 0 ) {
             foreach ( $approved_articles as $article ) {
                 if ( empty( $article['source_id'] ) || empty( $article['ai_summary'] ) ) continue;
 
-                // Find original URL
                 $original_url = '';
                 foreach( $fresh_news as $fn ) {
                     if ( $fn['source_id'] === $article['source_id'] ) $original_url = $fn['url'];
@@ -249,13 +266,14 @@ function mna_execute_step_1_editor() {
                 );
                 $added_count++;
             }
-            break; // We found the gold! Stop checking the rest of the chunks.
+            break; 
         }
     }
 
+    $source_msg = isset($target_url) ? "Checked {$target_url}." : "";
     if ( $added_count > 0 ) {
-        return "Step 1 Complete: Added {$added_count} new article plans to the Pending Queue (Took {$strikes} attempts).";
+        return "Step 1 Complete: {$source_msg} Added {$added_count} new article plans to the Queue.";
     } else {
-        return "Checked {$strikes} batches of news, but the AI deemed none of them relevant based on your prompt.";
+        return "{$source_msg} The AI Editor reviewed the news but found nothing relevant based on your prompt.";
     }
 }
