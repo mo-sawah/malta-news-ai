@@ -15,9 +15,10 @@ function mna_execute_step_1_editor() {
     }
 
     // 1. Fetch News from GNews API
-    $gnews_url = "https://gnews.io/api/v4/search?q=" . urlencode($query) . "&country={$country}&lang=en&max=10&apikey={$gnews_api}";
-    $response = wp_remote_get( $gnews_url, ['timeout' => 30] );
-    
+// 1. Fetch News from GNews API (Modified for Malta)
+    // We prepend "Malta" to whatever query you typed in the settings
+    $exact_query = trim("Malta " . $query);
+    $gnews_url = "https://gnews.io/api/v4/search?q=" . urlencode($exact_query) . "&lang=en&max=10&apikey={$gnews_api}";    $response = wp_remote_get( $gnews_url, ['timeout' => 30] );
     if ( is_wp_error( $response ) ) return $response;
     
     $body = json_decode( wp_remote_retrieve_body( $response ), true );
