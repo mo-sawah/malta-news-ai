@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Malta News AI Editor
  * Description: Fully automated, AI-driven editorial desk using GNews and OpenRouter.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Mohamed Sawah
  */
 

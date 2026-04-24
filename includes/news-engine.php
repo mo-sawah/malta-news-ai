@@ -1,12 +1,14 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-// WordPress required files for image downloading
-require_once( ABSPATH . 'wp-admin/includes/media.php' );
-require_once( ABSPATH . 'wp-admin/includes/file.php' );
-require_once( ABSPATH . 'wp-admin/includes/image.php' );
+// IMPORTANT: We moved the require_once lines INSIDE the function below!
 
 function mna_execute_news_cycle() {
+    // 0. Load WordPress required files for image downloading ONLY when the engine runs
+    require_once( ABSPATH . 'wp-admin/includes/media.php' );
+    require_once( ABSPATH . 'wp-admin/includes/file.php' );
+    require_once( ABSPATH . 'wp-admin/includes/image.php' );
+
     $gnews_api    = get_option( 'mna_gnews_api' );
     $query        = get_option( 'mna_search_query', 'politics' );
     $country      = get_option( 'mna_country_code', 'mt' );
