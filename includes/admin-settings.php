@@ -61,7 +61,7 @@ function mna_render_settings_page() {
                 <div style="flex: 1;">
                     <label style="font-weight: bold; font-size: 15px; display:flex; align-items:center; gap: 8px; color: #008a20;">
                         <input type="checkbox" name="mna_auto_writer" value="1" <?php checked( 1, get_option( 'mna_auto_writer' ), true ); ?>>
-                        Enable Auto-Writer (Runs every 20 mins)
+                        Enable Auto-Writer (Runs every 10 mins)
                     </label>
                 </div>
             </div>
