@@ -77,6 +77,9 @@ function mna_execute_step_2_writer( $specific_id = null ) {
         return new WP_Error( 'json_error', 'AI did not return valid JSON.' );
     }
 
+    // ==========================================
+    // 🖼️ ROBUST IMAGE DOWNLOADING & PARSING
+    // ==========================================
     $generate_images = get_option( 'mna_generate_images' ) == '1';
     $image_model     = get_option( 'mna_image_model', 'black-forest-labs/flux.2-pro' );
     $image_url_to_sideload = null;
@@ -84,8 +87,7 @@ function mna_execute_step_2_writer( $specific_id = null ) {
     if ( $generate_images && ! empty( $pending_item->image_prompt ) ) {
         $img_payload = [
             'model'      => $image_model,
-            'messages'   => [ ['role' => 'user', 'content' => $pending_item->image_prompt] ],
-            'modalities' => ["image"]
+            'messages'   => [ ['role' => 'user', 'content' => $pending_item->image_prompt] ]
         ];
         
         $img_response = wp_remote_post( 'https://openrouter.ai/api/v1/chat/completions', [
@@ -100,12 +102,20 @@ function mna_execute_step_2_writer( $specific_id = null ) {
 
         if ( ! is_wp_error( $img_response ) ) {
             $img_body = json_decode( wp_remote_retrieve_body( $img_response ), true );
-            if ( isset( $img_body['choices'][0]['message']['images'][0] ) ) {
-                $image_url_to_sideload = $img_body['choices'][0]['message']['images'][0];
+            $img_content = $img_body['choices'][0]['message']['content'] ?? '';
+            
+            // Extract Markdown URL: ![alt](https://...)
+            if ( preg_match( '/!\[.*?\]\((.*?)\)/', $img_content, $matches ) ) {
+                $image_url_to_sideload = $matches[1];
+            } 
+            // Or extract direct URL if the model returned plain text
+            elseif ( filter_var( trim($img_content), FILTER_VALIDATE_URL ) ) {
+                $image_url_to_sideload = trim($img_content);
             }
         }
     }
 
+    // Fallback to Firecrawl scraped image
     if ( ! $image_url_to_sideload ) {
         $image_map = get_option( 'mna_image_map', [] );
         if ( isset( $image_map[ $pending_item->source_id ] ) ) {
@@ -119,25 +129,44 @@ function mna_execute_step_2_writer( $specific_id = null ) {
     $post_author_setting   = get_option( 'mna_post_author', 'auto' );
     $post_category_setting = get_option( 'mna_post_category', 'auto' );
 
-    // Check if set to auto. If yes, use the AI's choice from the DB. If no, use the hardcoded choice.
     $final_author   = ( $post_author_setting === 'auto' ) ? $pending_item->author_id : (int) $post_author_setting;
     $final_category = ( $post_category_setting === 'auto' ) ? $pending_item->category_id : (int) $post_category_setting;
 
+    // NOTE: $source_credit has been entirely removed from here!
     $post_data = [
         'post_title'   => sanitize_text_field( $draft['final_title'] ),
-        'post_content' => wp_kses_post( $draft['content'] ) . wp_kses_post( $source_credit ),
+        'post_content' => wp_kses_post( $draft['content'] ), // Source URL stripped out
         'post_status'  => 'publish',
-        'post_author'  => $final_author, // DYNAMIC!
-        'post_category'=> [ $final_category ] // DYNAMIC!
+        'post_author'  => $final_author, 
+        'post_category'=> [ $final_category ] 
     ];
     
     $post_id = wp_insert_post( $post_data );
 
     if ( is_wp_error( $post_id ) ) return new WP_Error( 'post_error', 'Failed to insert post into WP.' );
 
+    // Bulletproof Sideloading Engine
     if ( $image_url_to_sideload ) {
-        $attachment_id = media_sideload_image( $image_url_to_sideload, $post_id, $draft['final_title'], 'id' );
-        if ( ! is_wp_error( $attachment_id ) ) set_post_thumbnail( $post_id, $attachment_id );
+        $tmp_file = download_url( $image_url_to_sideload );
+        if ( ! is_wp_error( $tmp_file ) ) {
+            // Force a clean .jpg extension if missing so WordPress doesn't reject it
+            $file_name = basename( parse_url( $image_url_to_sideload, PHP_URL_PATH ) );
+            if ( ! preg_match( '/\.(jpe?g|png|webp|gif)$/i', $file_name ) ) {
+                $file_name = md5( $image_url_to_sideload ) . '.jpg'; 
+            }
+            
+            $file_array = [
+                'name'     => $file_name,
+                'tmp_name' => $tmp_file
+            ];
+            
+            $attachment_id = media_handle_sideload( $file_array, $post_id, $draft['final_title'] );
+            if ( ! is_wp_error( $attachment_id ) ) {
+                set_post_thumbnail( $post_id, $attachment_id );
+            } else {
+                @unlink( $tmp_file ); // Delete temp file if it fails
+            }
+        }
     }
 
     $wpdb->update(
